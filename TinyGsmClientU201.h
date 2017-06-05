@@ -166,6 +166,39 @@ private:
   RxFifo        rx;
 };
 
+class GsmSSLClient : public GsmClient
+{
+  friend class TinyGsm;
+  typedef TinyGsmFifo<uint8_t, TINY_GSM_RX_BUFFER> RxFifo;
+
+public:
+  GsmSSLClient() {}
+
+  GsmSSLClient(TinyGsm& modem, uint8_t mux = 1) {
+    init(&modem, mux);
+  }
+
+  virtual int connect(const char *host, uint16_t port) {
+    TINY_GSM_YIELD();
+    rx.clear();
+    sock_connected = at->modemSSLConnect(host, port, &mux);
+    at->sockets[mux] = this;
+    return sock_connected;
+  }
+
+  virtual int connect(IPAddress ip, uint16_t port) {
+    String host; host.reserve(16);
+    host += ip[0];
+    host += ".";
+    host += ip[1];
+    host += ".";
+    host += ip[2];
+    host += ".";
+    host += ip[3];
+    return connect(host.c_str(), port);
+  }
+};
+
 public:
 
   /*
@@ -185,6 +218,11 @@ public:
     }
     getSimStatus();
     return true;
+  }
+
+  void setBaud(unsigned long baud) {
+    // set baud rate to 921600
+    sendAT(GF("+IPR="), baud);
   }
 
   bool autoBaud(unsigned long timeout = 10000L) {
@@ -483,13 +521,34 @@ private:
     return (1 == rsp);
   }
 
+  int modemSSLConnect(const char* host, uint16_t port, uint8_t* mux) {
+
+    // create TCP socket
+    sendAT(GF("+USOCR=6"));
+    if (waitResponse(GF(GSM_NL "+USOCR:")) != 1) {
+      return -1;
+    }
+    *mux = stream.readStringUntil('\n').toInt();
+    waitResponse();
+
+    sendAT(GF("+USOSEC="), *mux, ",1");
+    waitResponse();
+
+    sendAT(GF("+USOCO="), *mux, ",\"", host, "\",", port);
+    int rsp = waitResponse(75000L,
+                  GF("OK" GSM_NL),
+                  GF("ERROR" GSM_NL));
+
+    return (1 == rsp);
+  }
+
   int modemSend(const void* buff, size_t len, uint8_t mux) {
     sendAT(GF("+USOWR="), mux, ',', len);
     if (waitResponse(GF("@")) != 1) {
       return -1;
     }
     // at least 50mSeconds delay, see AT manual section 25.10.4
-    delay(100);
+    delay(50);
     stream.write((uint8_t*)buff, len);
     if (waitResponse(GF(GSM_NL "+USOWR:")) != 1) {
       return -1;
@@ -501,11 +560,11 @@ private:
   size_t modemRead(size_t size, uint8_t mux) {
     sendAT(GF("+USORD="), mux, ',', size);
     if (waitResponse(GF(GSM_NL "+USORD:")) != 1) {
-      DebugSerial.println("read return 0");
       return 0;
     }
     streamSkipUntil(','); // Skip mux
     size_t len = stream.readStringUntil(',').toInt();
+    streamSkipUntil('\"');
     //sockets[mux]->sock_available = stream.readStringUntil('\n').toInt();
 
     for (size_t i=0; i<len; i++) {
@@ -521,6 +580,7 @@ private:
 #endif
       sockets[mux]->rx.put(c);
     }
+    streamSkipUntil('\"');
     waitResponse();
     return len;
   }
@@ -625,8 +685,10 @@ private:
         } else if (data.endsWith("+UUSOCL:")) {
           mux = stream.readStringUntil('\n').toInt();
           gotData = false;
-          sockets[mux]->sock_connected = false;
-          sockets[mux]->sock_available = 0;
+          if (sockets[mux] != NULL) {
+            sockets[mux]->sock_connected = false;
+            sockets[mux]->sock_available = 0;
+          }
         }
       }
     } while (millis() - startMillis < timeout);
@@ -664,5 +726,6 @@ private:
 };
 
 typedef TinyGsm::GsmClient TinyGsmClient;
+typedef TinyGsm::GsmSSLClient TinyGsmSSLClient;
 
 #endif
