@@ -42,9 +42,14 @@ class TinyGsm
 {
 
 public:
-  TinyGsm(Stream& stream)
+  TinyGsm(__attribute__((unused)) Stream& stream = (Stream&)Serial)
+#ifdef ARDUINO_GSM_COMPATIBILITY_WRAPPER
+    : stream(GSM_DEFAULT_STREAM)
+#else
     : stream(stream)
-  {}
+#endif
+  {
+  }
 
 public:
 
@@ -204,11 +209,11 @@ public:
   /*
    * Basic functions
    */
-  bool begin() {
-    return init();
+  bool begin(const char* pin = NULL) {
+    return init(pin);
   }
 
-  bool init() {
+  bool init(const char* pin = NULL) {
     if (!autoBaud()) {
       return false;
     }
@@ -216,8 +221,11 @@ public:
     if (waitResponse() != 1) {
       return false;
     }
-    getSimStatus();
-    return true;
+    int ret = getSimStatus();
+    if (ret != SIM_READY && pin != NULL && strlen(pin) > 0) {
+      simUnlock(pin);
+    }
+    return (getSimStatus() == SIM_READY);
   }
 
   void setBaud(unsigned long baud) {
@@ -233,6 +241,9 @@ public:
           return true;
       }
       delay(100);
+#ifdef ARDUINO_GSM_COMPATIBILITY_WRAPPER
+      changeBaudRate();
+#endif
     }
     return false;
   }
@@ -727,5 +738,16 @@ private:
 
 typedef TinyGsm::GsmClient TinyGsmClient;
 typedef TinyGsm::GsmSSLClient TinyGsmSSLClient;
+
+#ifdef ARDUINO_GSM_COMPATIBILITY_WRAPPER
+
+typedef TinyGsmClient GSMClient;
+typedef TinyGsmSSLClient GSMSSLClient;
+typedef TinyGsm GSM;
+
+#define GPRS      "#Please use only one GSM object"
+#define GSM_SMS   "#Please use only one GSM object"
+
+#endif
 
 #endif

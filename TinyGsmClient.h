@@ -9,6 +9,10 @@
 #ifndef TinyGsmClient_h
 #define TinyGsmClient_h
 
+#ifdef ARDUINO_GSM_COMPATIBILITY_WRAPPER
+#include "ArduinoGSMCompat.h"
+#endif
+
 #if   defined(TINY_GSM_MODEM_SIM800) || defined(TINY_GSM_MODEM_SIM900)
   #include <TinyGsmClientSIM800.h>
 #elif defined(TINY_GSM_MODEM_A6) || defined(TINY_GSM_MODEM_A7)
